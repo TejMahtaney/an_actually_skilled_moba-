@@ -324,7 +324,9 @@
     <div class="score-card"><div class="label">TOWERS</div><div class="value" id="r-towers">—</div></div>
     <div class="score-card"><div class="label">MVP</div><div class="value" id="r-mvp" style="font-size:18px">—</div></div>
   </div>
-  <canvas id="gold-chart" width="1200" height="200"></canvas>
+  <h3 style="color:var(--gold);margin-top:24px">PLAYER PERFORMANCE</h3>
+  <table id="perf-table" style="width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--border);border-radius:8px;overflow:hidden;font-size:13px"></table>
+  <canvas id="gold-chart" width="1200" height="200" style="margin-top:16px"></canvas>
   <div class="narration" id="narration">—</div>
   <div style="margin-top: 16px">
     <button onclick="location.reload()">Play Again</button>
@@ -435,10 +437,29 @@ function renderSlots(elId, picks, side) {
 }
 
 async function onChampClick(cid) {
-  if (DRAFT_STATE.turn === "player_ban") {
-    DRAFT_STATE = await api("/draft/ban", "POST", { champion_id: cid });
-  } else if (DRAFT_STATE.turn === "player_pick") {
-    DRAFT_STATE = await api("/draft/pick", "POST", { champion_id: cid });
+  // --- Optimistic local update so the UI reacts instantly ---
+  const wasTurn = DRAFT_STATE.turn;
+  if (wasTurn === "player_ban") {
+    DRAFT_STATE.blue_bans.push(cid);
+    DRAFT_STATE.turn = "enemy_ban";
+  } else if (wasTurn === "player_pick") {
+    DRAFT_STATE.blue_picks.push(cid);
+    // After 1st player pick → enemy 2-pick; after 3rd → enemy 1-pick
+    if (DRAFT_STATE.blue_picks.length === 1 || DRAFT_STATE.blue_picks.length === 3) {
+      DRAFT_STATE.turn = "enemy_pick";
+    }
+  }
+  renderDraft();
+
+  try {
+    if (wasTurn === "player_ban") {
+      DRAFT_STATE = await api("/draft/ban", "POST", { champion_id: cid });
+    } else if (wasTurn === "player_pick") {
+      DRAFT_STATE = await api("/draft/pick", "POST", { champion_id: cid });
+    }
+  } catch (e) {
+    alert("Action failed: " + e.message);
+    DRAFT_STATE = await api("/draft/state");
   }
   renderDraft();
 }
@@ -576,66 +597,139 @@ function initMap() {
   document.getElementById("phase-bar").textContent = "EARLY GAME";
 }
 
-function jitterPlayers(driftToCenter = 0) {
-  ["p-blue-top","p-blue-bot","p-blue-jungle","p-red-top","p-red-bot","p-red-jungle"].forEach(id => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const cx = parseFloat(el.getAttribute("cx"));
-    const cy = parseFloat(el.getAttribute("cy"));
-    const tx = 300, ty = 250;
-    const newX = cx + (tx - cx) * driftToCenter * 0.05 + (Math.random() - 0.5) * 8;
-    const newY = cy + (ty - cy) * driftToCenter * 0.05 + (Math.random() - 0.5) * 8;
-    el.setAttribute("cx", newX);
-    el.setAttribute("cy", newY);
-  });
+// Player base positions by role and side
+const PLAYER_BASES = {
+  "p-blue-top":    { home: [100, 60],  lane: "top",    side: "blue" },
+  "p-blue-bot":    { home: [100, 440], lane: "bot",    side: "blue" },
+  "p-blue-jungle": { home: [180, 320], lane: "jungle", side: "blue" },
+  "p-red-top":     { home: [500, 60],  lane: "top",    side: "red" },
+  "p-red-bot":     { home: [500, 440], lane: "bot",    side: "red" },
+  "p-red-jungle":  { home: [420, 180], lane: "jungle", side: "red" },
+};
+let PLAYER_POS = {}; // current animated positions
+
+function resetPlayerPositions() {
+  PLAYER_POS = {};
+  for (const [id, b] of Object.entries(PLAYER_BASES)) {
+    PLAYER_POS[id] = { x: b.home[0], y: b.home[1], tx: b.home[0], ty: b.home[1] };
+  }
+}
+
+function targetForPlayer(id, minute) {
+  const b = PLAYER_BASES[id];
+  const phase = minute < 10 ? 0 : minute < 22 ? 1 : 2;
+  const sideX = b.side === "blue" ? 1 : -1; // blue pushes right
+  let tx, ty;
+  if (phase === 0) {
+    // Early: walk along their lane (laners) or rotate in jungle
+    if (b.lane === "top") {
+      tx = b.home[0] + sideX * (60 + minute * 8);
+      ty = 60;
+    } else if (b.lane === "bot") {
+      tx = b.home[0] + sideX * (60 + minute * 8);
+      ty = 440;
+    } else {
+      // jungle wandering near middle of own jungle
+      tx = b.home[0] + Math.sin(minute) * 30;
+      ty = b.home[1] + Math.cos(minute * 0.7) * 30;
+    }
+  } else if (phase === 1) {
+    // Mid: drift toward Wyrm/mid
+    const wyrmX = 300, wyrmY = 250;
+    const t = (minute - 10) / 12;
+    tx = b.home[0] + (wyrmX - b.home[0]) * (0.4 + t * 0.3);
+    ty = b.home[1] + (wyrmY - b.home[1]) * (0.4 + t * 0.3);
+  } else {
+    // Late: group up near mid for teamfights
+    const cx = 300 + (b.side === "blue" ? -40 : 40);
+    const cy = 250;
+    const idx = Object.keys(PLAYER_BASES).indexOf(id);
+    tx = cx + Math.cos(idx + minute * 0.3) * 35;
+    ty = cy + Math.sin(idx + minute * 0.3) * 35;
+  }
+  // small jitter
+  tx += (Math.random() - 0.5) * 10;
+  ty += (Math.random() - 0.5) * 10;
+  return [Math.max(30, Math.min(570, tx)), Math.max(30, Math.min(470, ty))];
+}
+
+function appendEvent(ev) {
+  const list = document.getElementById("event-list");
+  const item = document.createElement("div");
+  const lower = (ev.details || "").toLowerCase();
+  const side = lower.includes("red") ? "red" : lower.includes("blue") ? "blue" : "";
+  item.className = "event-item " + side;
+  item.innerHTML = `<span class="time">[${ev.time}']</span> <strong>${ev.event}</strong><br>${ev.details}`;
+  list.appendChild(item);
+  list.scrollTop = list.scrollHeight;
 }
 
 function playMatchAnimation() {
-  const events = LAST_RESULT.match_result.key_events || [];
-  const timeline = LAST_RESULT.match_result.gold_diff_timeline || [];
-  const phases = [
-    { name: "EARLY GAME", until: 11, drift: 0 },
-    { name: "MID GAME", until: 22, drift: 1 },
-    { name: "LATE GAME", until: 999, drift: 2 },
-  ];
-  let i = 0;
-  let stop = false;
-  const STEP_MS = 600;
-  const start = Date.now();
+  const mr = LAST_RESULT.match_result;
+  const events = (mr.key_events || []).slice().sort((a, b) => a.time - b.time);
+  const timeline = mr.gold_diff_timeline || [];
+  const totalMin = Math.max(mr.duration_minutes || 30, 30);
+  const REAL_DURATION_MS = 18000; // ~18s of in-game animation
 
-  function tick() {
-    if (stop) return;
-    if (i >= events.length) {
-      finishMatch();
-      return;
+  resetPlayerPositions();
+  let evIdx = 0;
+  let lastTargetUpdate = -1;
+  const startReal = performance.now();
+
+  function frame(now) {
+    const elapsed = now - startReal;
+    const t = Math.min(1, elapsed / REAL_DURATION_MS);
+    const minute = t * totalMin;
+
+    // Phase bar
+    const phaseName = minute < 10 ? "EARLY GAME"
+                    : minute < 22 ? "MID GAME" : "LATE GAME";
+    document.getElementById("phase-bar").textContent =
+      `${phaseName}  —  ${Math.floor(minute)}:${String(Math.floor((minute % 1) * 60)).padStart(2, "0")}`;
+
+    // Refresh targets every ~0.8 in-game minutes
+    if (minute - lastTargetUpdate > 0.8) {
+      lastTargetUpdate = minute;
+      for (const id of Object.keys(PLAYER_BASES)) {
+        const [tx, ty] = targetForPlayer(id, minute);
+        PLAYER_POS[id].tx = tx;
+        PLAYER_POS[id].ty = ty;
+      }
     }
-    const ev = events[i];
-    const phase = phases.find(p => ev.time <= p.until);
-    document.getElementById("phase-bar").textContent = phase.name;
-    jitterPlayers(phase.drift);
 
-    // Update gold bar from nearest timeline entry
-    const tl = timeline.filter(t => t[0] <= ev.time).slice(-1)[0] || [0, 0];
+    // Ease toward targets every frame
+    for (const [id, p] of Object.entries(PLAYER_POS)) {
+      p.x += (p.tx - p.x) * 0.06;
+      p.y += (p.ty - p.y) * 0.06;
+      const el = document.getElementById(id);
+      if (el) {
+        el.setAttribute("cx", p.x.toFixed(1));
+        el.setAttribute("cy", p.y.toFixed(1));
+      }
+    }
+
+    // Drop events whose time has passed
+    while (evIdx < events.length && events[evIdx].time <= minute) {
+      appendEvent(events[evIdx]);
+      evIdx++;
+    }
+
+    // Gold bar interpolation
+    const tl = timeline.filter(([m]) => m <= minute).slice(-1)[0] || [0, 0];
     const diff = tl[1];
-    const totalGold = 30000;
-    const bluePct = Math.max(10, Math.min(90, 50 + (diff / totalGold) * 100));
+    const bluePct = Math.max(10, Math.min(90, 50 + (diff / 30000) * 100));
     document.getElementById("gold-blue").style.width = bluePct + "%";
     document.getElementById("gold-red").style.width = (100 - bluePct) + "%";
 
-    // Append event
-    const list = document.getElementById("event-list");
-    const item = document.createElement("div");
-    const side = ev.details && ev.details.toLowerCase().includes("red") ? "red"
-              : ev.details && ev.details.toLowerCase().includes("blue") ? "blue" : "";
-    item.className = "event-item " + side;
-    item.innerHTML = `<span class="time">[${ev.time}']</span> <strong>${ev.event}</strong><br>${ev.details}`;
-    list.appendChild(item);
-    list.scrollTop = list.scrollHeight;
-
-    i++;
-    setTimeout(tick, STEP_MS);
+    if (t < 1) {
+      requestAnimationFrame(frame);
+    } else {
+      // Flush any remaining events
+      while (evIdx < events.length) appendEvent(events[evIdx++]);
+      setTimeout(finishMatch, 600);
+    }
   }
-  tick();
+  requestAnimationFrame(frame);
 }
 
 function finishMatch() {
@@ -653,6 +747,37 @@ function finishMatch() {
   document.getElementById("r-mvp").textContent = mvpC ? `${mvpC.icon} ${mvpC.name}` : mr.mvp;
   document.getElementById("narration").textContent = LAST_RESULT.narration;
   drawGoldChart(mr.gold_diff_timeline);
+  renderPerformances(mr.player_performances || []);
+}
+
+function renderPerformances(perfs) {
+  const blue = perfs.slice(0, 3);
+  const red = perfs.slice(3);
+  const rows = [];
+  rows.push(`<thead><tr style="background:#0b0e15;color:var(--muted);text-align:left">
+    <th style="padding:8px">TEAM</th><th style="padding:8px">CHAMPION</th>
+    <th style="padding:8px">ROLE</th><th style="padding:8px">KDA</th>
+    <th style="padding:8px">CS</th><th style="padding:8px">KP</th></tr></thead><tbody>`);
+  function row(p, side) {
+    const c = CHAMPIONS[p.champion_id] || { icon: "?", name: p.champion_id };
+    const kda = `${p.kills}/${p.deaths}/${p.assists}`;
+    const ratio = p.deaths === 0
+      ? (p.kills + p.assists).toFixed(1)
+      : ((p.kills + p.assists) / p.deaths).toFixed(2);
+    const color = side === "blue" ? "var(--blue)" : "var(--red)";
+    return `<tr style="border-top:1px solid var(--border)">
+      <td style="padding:8px;color:${color};font-weight:600">${side.toUpperCase()}</td>
+      <td style="padding:8px"><span style="font-size:18px">${c.icon}</span> ${c.name}</td>
+      <td style="padding:8px;color:var(--muted)">${p.role}</td>
+      <td style="padding:8px;font-family:ui-monospace,monospace">${kda} <span style="color:var(--muted)">(${ratio})</span></td>
+      <td style="padding:8px;font-family:ui-monospace,monospace">${p.cs}</td>
+      <td style="padding:8px;font-family:ui-monospace,monospace">—</td>
+    </tr>`;
+  }
+  blue.forEach(p => rows.push(row(p, "blue")));
+  red.forEach(p => rows.push(row(p, "red")));
+  rows.push("</tbody>");
+  document.getElementById("perf-table").innerHTML = rows.join("");
 }
 
 function drawGoldChart(timeline) {
