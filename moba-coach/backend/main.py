@@ -6,17 +6,25 @@ from pydantic import BaseModel
 
 try:
     from .champions import CHAMPIONS
+    from .coaching import CoachingInput, coaching_to_params, params_to_sim_params
     from .config import OLLAMA_BASE_URL, OLLAMA_MODEL
     from .draft import DraftError, DraftManager
+    from .llm import OllamaClient
+    from .simulation import simulate_match
 except ImportError:
     from champions import CHAMPIONS
+    from coaching import CoachingInput, coaching_to_params, params_to_sim_params
     from config import OLLAMA_BASE_URL, OLLAMA_MODEL
     from draft import DraftError, DraftManager
+    from llm import OllamaClient
+    from simulation import simulate_match
 
 app = FastAPI(title="moba-coach", version="0.1.0")
 
 # Single in-memory draft for now
 _current_draft: Optional[DraftManager] = None
+_llm = OllamaClient()
+_last_match: Optional[dict] = None
 
 
 def _draft() -> DraftManager:
@@ -102,6 +110,141 @@ async def draft_pick(req: PickRequest):
     if enemy_action:
         state["enemy_action"] = enemy_action
     return state
+
+
+def _team_lists(d: DraftManager):
+    blue = [{"champion_id": cid, "role": role}
+            for cid, role in d.role_assignments.items()]
+    enemy_roles = d.auto_assign_enemy_roles()
+    red = [{"champion_id": cid, "role": role}
+           for cid, role in enemy_roles.items()]
+    return blue, red
+
+
+def _result_to_dict(result) -> dict:
+    out = result.model_dump()
+    for key in ("blue_kills", "red_kills", "gold_diff_timeline",
+                "towers_destroyed", "wyrm_secured_by", "key_events",
+                "player_performances", "mvp"):
+        if key in result.__dict__:
+            out[key] = result.__dict__[key]
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Match endpoints
+# ---------------------------------------------------------------------------
+
+class MatchCoachingRequest(BaseModel):
+    coaching: CoachingInput
+
+
+class NarrateRequest(BaseModel):
+    coaching: Optional[CoachingInput] = None
+
+
+_pending_blue_params: Optional[dict] = None
+_pending_red_params: Optional[dict] = None
+
+
+@app.post("/match/coaching")
+async def match_coaching(req: MatchCoachingRequest):
+    global _pending_blue_params, _pending_red_params
+    d = _draft()
+    if not d.is_complete():
+        raise HTTPException(400, "Draft not complete")
+    blue, red = _team_lists(d)
+
+    baseline = coaching_to_params(req.coaching)
+    interpreted = await _llm.interpret_coaching(
+        req.coaching.model_dump(), blue, red)
+    llm_ok = "unavailable" not in interpreted.get("analysis", "").lower()
+    if llm_ok:
+        blue_params = {**baseline, **{k: v for k, v in interpreted.items()
+                                      if k in baseline}}
+    else:
+        blue_params = baseline
+    enemy = await _llm.enemy_strategy(red, blue, d.archetype)
+
+    _pending_blue_params = blue_params
+    _pending_red_params = enemy
+
+    return {
+        "blue_params": blue_params,
+        "red_params": enemy,
+        "llm_analysis": interpreted.get("analysis", ""),
+        "baseline": baseline,
+    }
+
+
+@app.post("/match/simulate")
+def match_simulate():
+    global _last_match
+    d = _draft()
+    if not d.is_complete():
+        raise HTTPException(400, "Draft not complete")
+    if _pending_blue_params is None or _pending_red_params is None:
+        raise HTTPException(400, "Submit /match/coaching first")
+    blue, red = _team_lists(d)
+    result = simulate_match(
+        blue, red,
+        params_to_sim_params(_pending_blue_params),
+        params_to_sim_params(_pending_red_params),
+    )
+    _last_match = _result_to_dict(result)
+    return _last_match
+
+
+@app.post("/match/narrate")
+async def match_narrate(req: NarrateRequest):
+    if _last_match is None:
+        raise HTTPException(400, "No match to narrate")
+    d = _draft()
+    blue, red = _team_lists(d)
+    coaching = req.coaching.model_dump() if req.coaching else {}
+    text = await _llm.narrate_match(_last_match, blue, red, coaching)
+    return {"narration": text}
+
+
+@app.post("/match/play")
+async def match_play(req: MatchCoachingRequest):
+    global _last_match, _pending_blue_params, _pending_red_params
+    d = _draft()
+    if not d.is_complete():
+        raise HTTPException(400, "Draft not complete")
+    blue, red = _team_lists(d)
+
+    baseline = coaching_to_params(req.coaching)
+    interpreted = await _llm.interpret_coaching(
+        req.coaching.model_dump(), blue, red)
+    llm_ok = "unavailable" not in interpreted.get("analysis", "").lower()
+    if llm_ok:
+        blue_params = {**baseline, **{k: v for k, v in interpreted.items()
+                                      if k in baseline}}
+    else:
+        blue_params = baseline
+    red_params = await _llm.enemy_strategy(red, blue, d.archetype)
+    _pending_blue_params = blue_params
+    _pending_red_params = red_params
+
+    result = simulate_match(
+        blue, red,
+        params_to_sim_params(blue_params),
+        params_to_sim_params(red_params),
+    )
+    result_dict = _result_to_dict(result)
+    _last_match = result_dict
+
+    narration = await _llm.narrate_match(
+        result_dict, blue, red, req.coaching.model_dump())
+
+    return {
+        "sim_params": blue_params,
+        "enemy_params": red_params,
+        "match_result": result_dict,
+        "narration": narration,
+        "llm_analysis": interpreted.get("analysis", ""),
+    }
 
 
 @app.post("/draft/roles")
