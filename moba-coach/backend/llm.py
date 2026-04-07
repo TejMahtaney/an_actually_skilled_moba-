@@ -96,13 +96,13 @@ class OllamaClient:
         if json_mode:
             payload["format"] = "json"
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=300.0) as client:
                 r = await client.post(f"{self.base_url}/api/generate", json=payload)
                 r.raise_for_status()
                 data = r.json()
                 return data.get("response", "")
         except Exception as e:
-            log.error("Ollama generate failed: %s", e)
+            log.error("Ollama generate failed: %r", e)
             return "__LLM_UNAVAILABLE__"
 
     async def is_available(self) -> bool:
