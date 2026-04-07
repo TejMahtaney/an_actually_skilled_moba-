@@ -12,10 +12,12 @@ try:
     from .champions import CHAMPIONS
     from .matchups import get_matchup, get_synergy
     from .models import MatchResult
+    from .stats_engine import compute_combat_stats
 except ImportError:
     from champions import CHAMPIONS
     from matchups import get_matchup, get_synergy
     from models import MatchResult
+    from stats_engine import compute_combat_stats
 
 
 # ---------------------------------------------------------------------------
@@ -33,12 +35,9 @@ DEFAULT_PARAMS = {
     "ward_awareness": 0.4,    # fixed-ish, used by enemy gank check
 }
 
-# Per-champion gank ratings (rough scale 0-1)
-GANK_RATING = {
-    "fang": 0.9, "shade": 0.8, "siren": 0.75, "ironclad": 0.6,
-    "warden": 0.55, "reaver": 0.5, "rapier": 0.45, "sage": 0.4,
-    "whisper": 0.3, "solara": 0.45,
-}
+def _gank_rating(champion_id: str) -> float:
+    s = compute_combat_stats(champion_id)
+    return s["mobility"] * 0.4 + s["cc"] * 0.3 + s["burst"] * 0.3
 
 
 def _merge_params(p: Optional[dict]) -> dict:
@@ -181,7 +180,7 @@ def _resolve_jungle(blue_state: Dict[str, _PlayerState],
         focus = params["jungle_focus"]
         for _ in range(attempts):
             lane = "top" if rng.random() < focus.get("top", 0.5) else "bot"
-            gank_rating = GANK_RATING.get(jstate.champion_id, 0.5)
+            gank_rating = _gank_rating(jstate.champion_id)
             success_p = (params["gank_frequency"] * 0.4 +
                          gank_rating * 0.6) * (1 - 0.4)
             if rng.random() < success_p:

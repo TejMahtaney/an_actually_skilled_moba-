@@ -18,10 +18,12 @@ try:
     from .champions import CHAMPIONS
     from .config import OLLAMA_BASE_URL, OLLAMA_MODEL
     from .matchups import get_matchup, get_synergy
+    from .stats_engine import compute_combat_stats, compute_team_contribution
 except ImportError:
     from champions import CHAMPIONS
     from config import OLLAMA_BASE_URL, OLLAMA_MODEL
     from matchups import get_matchup, get_synergy
+    from stats_engine import compute_combat_stats, compute_team_contribution
 
 
 log = logging.getLogger("moba-coach.llm")
@@ -51,7 +53,23 @@ ARCHETYPE_BAN_NOTE = {
 
 def _champ_blurb(cid: str) -> str:
     c = CHAMPIONS[cid]
-    return f"- {c.id}: {c.name} ({c.tag}, roles={'/'.join(c.roles)}) — {c.description}"
+    actives = [a for a in c.abilities if a.ability_type != "ultimate"]
+    ult = next((a for a in c.abilities if a.ability_type == "ultimate"), None)
+    ability_line = ", ".join(a.name for a in actives)
+    ult_line = ult.name if ult else "-"
+
+    stats = compute_combat_stats(cid)
+    tc = compute_team_contribution(cid)
+    combined = {**stats, **tc}
+    ordered = sorted(combined.items(), key=lambda kv: kv[1], reverse=True)
+    strong = ", ".join(f"{k}({v:.2f})" for k, v in ordered[:3])
+    weak = ", ".join(f"{k}({v:.2f})" for k, v in ordered[-2:])
+
+    return (
+        f"- {c.id}: {c.name} ({c.tag}, roles={'/'.join(c.roles)}) "
+        f"| Abilities: {ability_line} | Ult: {ult_line} "
+        f"| Strong: {strong} | Weak: {weak}"
+    )
 
 
 def _extract_json(text: str) -> Optional[dict]:
