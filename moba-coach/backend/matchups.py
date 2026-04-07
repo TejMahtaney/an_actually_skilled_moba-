@@ -21,7 +21,7 @@ LANE_MATCHUPS: Dict[str, Dict[str, int]] = {
     "rapier": {
         "ironclad": 58,
         "shade": 55,
-        "reaver": 45,  # loses early, scales harder
+        "reaver": 45,  
         "warden": 60,
         "fang": 56,
         "sage": 58,
