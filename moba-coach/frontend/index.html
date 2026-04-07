@@ -311,7 +311,7 @@
   <div class="phase-bar" id="phase-bar">EARLY GAME</div>
   <div class="gold-bar"><div class="blue" id="gold-blue" style="width:50%"></div><div class="red" id="gold-red" style="width:50%"></div></div>
   <div class="match-layout">
-    <svg id="match-svg" viewBox="0 0 600 500"></svg>
+    <svg id="match-svg" viewBox="0 0 700 500"></svg>
     <div class="event-feed">
       <h3>LIVE EVENTS</h3>
       <div id="event-list"></div>
@@ -574,96 +574,60 @@ async function submitGamePlan() {
 // ---------------- match map ----------------
 function initMap() {
   const svg = document.getElementById("match-svg");
+  const towers = [
+    ["blue-top-t1", 150, 54, "#3b82f6"],
+    ["blue-top-t2", 300, 54, "#3b82f6"],
+    ["blue-bot-t1", 150, 434, "#3b82f6"],
+    ["blue-bot-t2", 300, 434, "#3b82f6"],
+    ["red-top-t1",  450, 54, "#ef4444"],
+    ["red-top-t2",  380, 54, "#ef4444"],
+    ["red-bot-t1",  450, 434, "#ef4444"],
+    ["red-bot-t2",  380, 434, "#ef4444"],
+  ];
   svg.innerHTML = `
-    <rect x="20" y="20" width="560" height="460" fill="#13182a" stroke="#2d3548" />
-    <!-- top lane -->
-    <line x1="60" y1="60" x2="540" y2="60" stroke="#2d3548" stroke-width="14" stroke-linecap="round"/>
-    <!-- bot lane -->
-    <line x1="60" y1="440" x2="540" y2="440" stroke="#2d3548" stroke-width="14" stroke-linecap="round"/>
-    <!-- jungle paths -->
-    <line x1="60" y1="60" x2="540" y2="440" stroke="#1c2236" stroke-width="6"/>
-    <line x1="60" y1="440" x2="540" y2="60" stroke="#1c2236" stroke-width="6"/>
-    <!-- wyrm -->
-    <circle cx="300" cy="250" r="22" fill="#1a1f2e" stroke="#f59e0b" stroke-width="2"/>
-    <text x="300" y="258" text-anchor="middle" font-size="22">🐉</text>
-    <!-- nexuses -->
-    <rect x="35" y="415" width="40" height="40" fill="#1a3a6b" stroke="#3b82f6" stroke-width="2"/>
-    <text x="55" y="442" text-anchor="middle" font-size="20">🏰</text>
-    <rect x="525" y="45" width="40" height="40" fill="#5a1a1a" stroke="#ef4444" stroke-width="2"/>
-    <text x="545" y="72" text-anchor="middle" font-size="20">🏰</text>
-    <!-- towers (8) -->
-    ${[
-      [150,60,'#3b82f6'], [300,60,'#3b82f6'],
-      [150,440,'#3b82f6'], [300,440,'#3b82f6'],
-      [450,60,'#ef4444'], [380,60,'#ef4444'],
-      [450,440,'#ef4444'], [380,440,'#ef4444'],
-    ].map(([x,y,c]) => `<rect x="${x-6}" y="${y-6}" width="12" height="12" fill="${c}"/>`).join("")}
-    <!-- players -->
-    <circle id="p-blue-top" cx="100" cy="60" r="10" fill="#3b82f6" stroke="#fff" stroke-width="2"/>
-    <circle id="p-blue-bot" cx="100" cy="440" r="10" fill="#3b82f6" stroke="#fff" stroke-width="2"/>
-    <circle id="p-blue-jungle" cx="180" cy="320" r="10" fill="#3b82f6" stroke="#fff" stroke-width="2"/>
-    <circle id="p-red-top" cx="500" cy="60" r="10" fill="#ef4444" stroke="#fff" stroke-width="2"/>
-    <circle id="p-red-bot" cx="500" cy="440" r="10" fill="#ef4444" stroke="#fff" stroke-width="2"/>
-    <circle id="p-red-jungle" cx="420" cy="180" r="10" fill="#ef4444" stroke="#fff" stroke-width="2"/>
+    <!-- background -->
+    <rect x="0" y="0" width="700" height="500" fill="#0a0e1a"/>
+
+    <!-- jungle regions -->
+    <rect x="90" y="100" width="520" height="300" fill="#0f1320"/>
+    <polygon points="90,100 610,100 610,400 90,400" fill="#0f1320"/>
+
+    <!-- river -->
+    <path d="M 300 120 L 300 250 L 300 380"
+          stroke="#0f1a2e" stroke-width="16" stroke-linecap="round"
+          opacity="0.6" fill="none"/>
+
+    <!-- lanes -->
+    <path d="M 50 60 L 550 60" stroke="#1a2038" stroke-width="20"
+          stroke-linecap="round" fill="none"/>
+    <path d="M 50 440 L 550 440" stroke="#1a2038" stroke-width="20"
+          stroke-linecap="round" fill="none"/>
+
+    <!-- jungle camp markers -->
+    <circle cx="180" cy="180" r="6" fill="#1a2038" stroke="#2d3548"/>
+    <circle cx="180" cy="340" r="6" fill="#1a2038" stroke="#2d3548"/>
+    <circle cx="420" cy="160" r="6" fill="#1a2038" stroke="#2d3548"/>
+    <circle cx="420" cy="340" r="6" fill="#1a2038" stroke="#2d3548"/>
+
+    <!-- bases -->
+    <rect x="30" y="410" width="50" height="50" fill="#0f1a3a" stroke="#3b82f6" stroke-width="2"/>
+    <text x="55" y="444" text-anchor="middle" font-size="26">🏰</text>
+    <rect x="520" y="40" width="50" height="50" fill="#3a0f0f" stroke="#ef4444" stroke-width="2"/>
+    <text x="545" y="74" text-anchor="middle" font-size="26">🏰</text>
+
+    <!-- towers -->
+    ${towers.map(([id, x, y, color]) =>
+      `<rect id="tower-${id}" x="${x - 6}" y="${y - 6}" width="12" height="12" fill="${color}" stroke="#e2e8f0" stroke-width="1"/>`
+    ).join("")}
+
+    <!-- wyrm pit -->
+    <g id="wyrm-marker">
+      <circle cx="300" cy="250" r="22" fill="#1a1f2e" stroke="#f59e0b" stroke-width="2"/>
+      <text x="300" y="259" text-anchor="middle" font-size="24">🐉</text>
+    </g>
   `;
   document.getElementById("event-list").innerHTML = "";
   document.getElementById("phase-bar").textContent = "EARLY GAME";
-}
-
-// Player base positions by role and side
-const PLAYER_BASES = {
-  "p-blue-top":    { home: [100, 60],  lane: "top",    side: "blue" },
-  "p-blue-bot":    { home: [100, 440], lane: "bot",    side: "blue" },
-  "p-blue-jungle": { home: [180, 320], lane: "jungle", side: "blue" },
-  "p-red-top":     { home: [500, 60],  lane: "top",    side: "red" },
-  "p-red-bot":     { home: [500, 440], lane: "bot",    side: "red" },
-  "p-red-jungle":  { home: [420, 180], lane: "jungle", side: "red" },
-};
-let PLAYER_POS = {}; // current animated positions
-
-function resetPlayerPositions() {
-  PLAYER_POS = {};
-  for (const [id, b] of Object.entries(PLAYER_BASES)) {
-    PLAYER_POS[id] = { x: b.home[0], y: b.home[1], tx: b.home[0], ty: b.home[1] };
-  }
-}
-
-function targetForPlayer(id, minute) {
-  const b = PLAYER_BASES[id];
-  const phase = minute < 10 ? 0 : minute < 22 ? 1 : 2;
-  const sideX = b.side === "blue" ? 1 : -1; // blue pushes right
-  let tx, ty;
-  if (phase === 0) {
-    // Early: walk along their lane (laners) or rotate in jungle
-    if (b.lane === "top") {
-      tx = b.home[0] + sideX * (60 + minute * 8);
-      ty = 60;
-    } else if (b.lane === "bot") {
-      tx = b.home[0] + sideX * (60 + minute * 8);
-      ty = 440;
-    } else {
-      // jungle wandering near middle of own jungle
-      tx = b.home[0] + Math.sin(minute) * 30;
-      ty = b.home[1] + Math.cos(minute * 0.7) * 30;
-    }
-  } else if (phase === 1) {
-    // Mid: drift toward Wyrm/mid
-    const wyrmX = 300, wyrmY = 250;
-    const t = (minute - 10) / 12;
-    tx = b.home[0] + (wyrmX - b.home[0]) * (0.4 + t * 0.3);
-    ty = b.home[1] + (wyrmY - b.home[1]) * (0.4 + t * 0.3);
-  } else {
-    // Late: group up near mid for teamfights
-    const cx = 300 + (b.side === "blue" ? -40 : 40);
-    const cy = 250;
-    const idx = Object.keys(PLAYER_BASES).indexOf(id);
-    tx = cx + Math.cos(idx + minute * 0.3) * 35;
-    ty = cy + Math.sin(idx + minute * 0.3) * 35;
-  }
-  // small jitter
-  tx += (Math.random() - 0.5) * 10;
-  ty += (Math.random() - 0.5) * 10;
-  return [Math.max(30, Math.min(570, tx)), Math.max(30, Math.min(470, ty))];
 }
 
 function appendEvent(ev) {
