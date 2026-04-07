@@ -217,6 +217,10 @@
 </head>
 <body>
 
+<div id="llm-warning" style="display:none;background:#5a1a1a;color:#fecaca;padding:8px 16px;text-align:center;font-size:13px;border-bottom:1px solid #ef4444">
+  ⚠ LLM unavailable — using fallback AI
+</div>
+
 <!-- ============ SCREEN 1 ============ -->
 <div id="screen-title" class="screen active">
   <h1>MOBA COACH</h1>
@@ -356,12 +360,21 @@ async function api(path, method = "GET", body = null) {
 async function loadChampions() {
   CHAMPIONS = await api("/champions");
 }
+async function checkLLM() {
+  try {
+    const h = await api("/health");
+    document.getElementById("llm-warning").style.display =
+      h.llm_available ? "none" : "block";
+  } catch (_) { /* ignore */ }
+}
 async function startMatch() {
   await loadChampions();
+  await checkLLM();
   DRAFT_STATE = await api("/draft/start", "POST");
   show("screen-draft");
   renderDraft();
 }
+checkLLM();
 
 // ---------------- draft ----------------
 function renderDraft() {

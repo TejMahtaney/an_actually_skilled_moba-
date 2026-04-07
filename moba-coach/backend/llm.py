@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import random
 from typing import Any, Dict, List, Optional
 
@@ -24,6 +25,11 @@ except ImportError:
 
 
 log = logging.getLogger("moba-coach.llm")
+
+# Toggle prompt/response logging by setting MOBACOACH_LOG_LLM=1
+LOG_PROMPTS = os.environ.get("MOBACOACH_LOG_LLM", "") in ("1", "true", "yes")
+# Force fallback-only mode (no network calls)
+NO_LLM = os.environ.get("MOBACOACH_NO_LLM", "") in ("1", "true", "yes")
 
 DEFAULT_PARAMS = {
     "top_aggression": 0.5,
@@ -87,6 +93,8 @@ class OllamaClient:
     # ----- core -----------------------------------------------------------
     async def generate(self, system_prompt: str, user_prompt: str,
                        json_mode: bool = False) -> str:
+        if NO_LLM:
+            return "__LLM_UNAVAILABLE__"
         payload: Dict[str, Any] = {
             "model": self.model,
             "system": system_prompt,
@@ -95,12 +103,19 @@ class OllamaClient:
         }
         if json_mode:
             payload["format"] = "json"
+        if LOG_PROMPTS:
+            print("\n--- LLM REQUEST ---")
+            print(f"system: {system_prompt[:300]}{'...' if len(system_prompt) > 300 else ''}")
+            print(f"user:   {user_prompt[:600]}{'...' if len(user_prompt) > 600 else ''}")
         try:
             async with httpx.AsyncClient(timeout=300.0) as client:
                 r = await client.post(f"{self.base_url}/api/generate", json=payload)
                 r.raise_for_status()
                 data = r.json()
-                return data.get("response", "")
+                resp = data.get("response", "")
+                if LOG_PROMPTS:
+                    print(f"--- LLM RESPONSE ---\n{resp[:600]}{'...' if len(resp) > 600 else ''}\n")
+                return resp
         except Exception as e:
             log.error("Ollama generate failed: %r", e)
             return "__LLM_UNAVAILABLE__"

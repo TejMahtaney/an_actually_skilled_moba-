@@ -50,6 +50,22 @@ def index():
 _current_draft: Optional[DraftManager] = None
 _llm = OllamaClient()
 _last_match: Optional[dict] = None
+_llm_available: bool = False
+
+
+@app.on_event("startup")
+async def _startup():
+    global _llm_available
+    from llm import NO_LLM
+    if NO_LLM:
+        print("[moba-coach] MOBACOACH_NO_LLM set — running in fallback-only mode")
+        _llm_available = False
+        return
+    _llm_available = await _llm.is_available()
+    status = "REACHABLE" if _llm_available else "UNREACHABLE"
+    print(f"[moba-coach] Ollama at {_llm.base_url} model={_llm.model}: {status}")
+    if not _llm_available:
+        print("[moba-coach] Falling back to deterministic AI for all LLM calls")
 
 
 def _draft() -> DraftManager:
@@ -71,12 +87,15 @@ class RolesRequest(BaseModel):
 
 
 @app.get("/health")
-def health():
+async def health():
+    # Re-check on demand so the UI always sees current state
+    available = await _llm.is_available()
     return {
         "status": "ok",
         "champions": len(CHAMPIONS),
         "ollama_url": OLLAMA_BASE_URL,
         "model": OLLAMA_MODEL,
+        "llm_available": available,
     }
 
 
@@ -269,6 +288,7 @@ async def match_play(req: MatchCoachingRequest):
         "match_result": result_dict,
         "narration": narration,
         "llm_analysis": interpreted.get("analysis", ""),
+        "llm_used": llm_ok,
     }
 
 
@@ -282,3 +302,31 @@ def draft_roles(req: RolesRequest):
     state = d.get_draft_state()
     state["enemy_role_assignments"] = d.auto_assign_enemy_roles()
     return state
+
+
+def _cli():
+    import argparse
+    import os as _os
+    import uvicorn
+
+    parser = argparse.ArgumentParser(description="moba-coach backend")
+    parser.add_argument("--no-llm", action="store_true",
+                        help="Run with deterministic fallback only (no Ollama).")
+    parser.add_argument("--log-llm", action="store_true",
+                        help="Print LLM prompts and responses to stdout.")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--reload", action="store_true")
+    args = parser.parse_args()
+
+    if args.no_llm:
+        _os.environ["MOBACOACH_NO_LLM"] = "1"
+    if args.log_llm:
+        _os.environ["MOBACOACH_LOG_LLM"] = "1"
+
+    uvicorn.run("main:app" if __name__ == "__main__" else "backend.main:app",
+                host=args.host, port=args.port, reload=args.reload)
+
+
+if __name__ == "__main__":
+    _cli()
