@@ -1,7 +1,12 @@
 """FastAPI entry point for moba-coach backend."""
 from typing import Dict, Optional
 
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 try:
@@ -20,6 +25,26 @@ except ImportError:
     from simulation import simulate_match
 
 app = FastAPI(title="moba-coach", version="0.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+_FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+if _FRONTEND_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(_FRONTEND_DIR)), name="static")
+
+
+@app.get("/", include_in_schema=False)
+def index():
+    index_path = _FRONTEND_DIR / "index.html"
+    if index_path.exists():
+        return FileResponse(str(index_path))
+    raise HTTPException(404, "frontend/index.html not found")
+
 
 # Single in-memory draft for now
 _current_draft: Optional[DraftManager] = None

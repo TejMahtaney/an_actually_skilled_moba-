@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>MOBA Coach</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --panel: #1a1f2e;
+    --border: #2d3548;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --blue: #3b82f6;
+    --red: #ef4444;
+    --gold: #f59e0b;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+  }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  button {
+    background: var(--blue); color: white; border: none;
+    padding: 12px 24px; font-size: 16px; cursor: pointer;
+    border-radius: 6px; font-weight: 600;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .screen { display: none; padding: 24px; max-width: 1280px; margin: 0 auto; }
+  .screen.active { display: block; }
+  h1 { letter-spacing: 0.1em; }
+  h2 { color: var(--gold); border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+
+  /* Title */
+  #screen-title {
+    text-align: center;
+    padding-top: 15vh;
+  }
+  #screen-title h1 {
+    font-size: 64px; margin: 0; color: var(--gold);
+    text-shadow: 0 0 20px rgba(245, 158, 11, 0.3);
+  }
+  #screen-title p { color: var(--muted); margin: 12px 0 36px; }
+
+  /* Draft */
+  .draft-layout {
+    display: grid; grid-template-columns: 200px 1fr 200px; gap: 16px;
+  }
+  .team-panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px; min-height: 400px;
+  }
+  .team-panel.blue { border-top: 3px solid var(--blue); }
+  .team-panel.red { border-top: 3px solid var(--red); }
+  .team-panel h3 { margin: 0 0 12px; font-size: 14px; letter-spacing: 0.1em; }
+  .team-slot {
+    background: #0b0e15; border: 1px dashed var(--border);
+    padding: 8px; border-radius: 4px; margin-bottom: 8px;
+    min-height: 50px; font-size: 13px;
+  }
+  .team-slot.filled { border-style: solid; }
+  .team-slot .icon { font-size: 22px; }
+  .ban-slot {
+    background: #2a0e0e; border: 1px solid #5a1f1f;
+    padding: 6px; border-radius: 4px; margin-top: 12px;
+    font-size: 12px; color: var(--red);
+  }
+
+  .step-indicator {
+    text-align: center; padding: 12px; margin-bottom: 16px;
+    background: var(--panel); border-radius: 6px;
+    font-weight: 600; letter-spacing: 0.1em;
+  }
+  .step-indicator.waiting { color: var(--gold); }
+
+  .champ-grid {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px;
+  }
+  .champ-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px; cursor: pointer;
+    text-align: center; transition: all 0.15s;
+    position: relative;
+  }
+  .champ-card:hover:not(.disabled) {
+    border-color: var(--gold); transform: translateY(-2px);
+  }
+  .champ-card .icon { font-size: 36px; }
+  .champ-card .name { font-weight: 600; margin-top: 4px; }
+  .champ-card .tag { color: var(--muted); font-size: 11px; }
+  .champ-card .roles { color: var(--gold); font-size: 10px; margin-top: 2px; font-family: ui-monospace, monospace; }
+  .champ-card.banned { opacity: 0.3; cursor: not-allowed; }
+  .champ-card.banned::after {
+    content: "✕"; position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%); font-size: 60px; color: var(--red);
+  }
+  .champ-card.picked-blue { border-color: var(--blue); cursor: not-allowed; }
+  .champ-card.picked-red { border-color: var(--red); cursor: not-allowed; }
+  .champ-card.disabled { cursor: not-allowed; opacity: 0.6; }
+
+  .spinner {
+    display: inline-block; width: 16px; height: 16px;
+    border: 2px solid var(--border); border-top-color: var(--gold);
+    border-radius: 50%; animation: spin 1s linear infinite;
+    vertical-align: middle; margin-left: 8px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Role assignment */
+  .role-assign {
+    margin-top: 24px; background: var(--panel); padding: 16px;
+    border-radius: 8px; border: 1px solid var(--border);
+  }
+  .role-assign-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    align-items: center; margin-bottom: 12px;
+  }
+  .role-assign select {
+    background: #0b0e15; color: var(--text); border: 1px solid var(--border);
+    padding: 8px; border-radius: 4px; font-size: 14px;
+  }
+
+  /* Coaching */
+  .coach-layout {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 24px;
+  }
+  .coach-form {
+    background: var(--panel); padding: 20px; border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+  .coach-form label {
+    display: block; margin: 12px 0 4px; font-size: 12px;
+    color: var(--muted); letter-spacing: 0.05em;
+  }
+  .coach-form select, .coach-form textarea {
+    width: 100%; background: #0b0e15; color: var(--text);
+    border: 1px solid var(--border); padding: 8px;
+    border-radius: 4px; font-size: 14px; font-family: inherit;
+  }
+  .coach-form textarea { resize: vertical; min-height: 60px; }
+  .coach-form fieldset {
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 12px; margin: 12px 0;
+  }
+  .coach-form legend { color: var(--gold); padding: 0 6px; font-size: 12px; }
+  .coach-form .row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+
+  .comp-display {
+    background: var(--panel); padding: 16px; border-radius: 8px;
+    border: 1px solid var(--border); margin-bottom: 16px;
+  }
+  .comp-display .team {
+    display: flex; gap: 8px; margin: 8px 0;
+  }
+  .comp-display .player {
+    flex: 1; background: #0b0e15; padding: 8px; border-radius: 4px;
+    text-align: center; font-size: 12px;
+  }
+  .comp-display .player.blue { border-left: 3px solid var(--blue); }
+  .comp-display .player.red { border-left: 3px solid var(--red); }
+  .comp-display .player .icon { font-size: 24px; }
+
+  /* Match */
+  .match-layout {
+    display: grid; grid-template-columns: 1fr 280px; gap: 16px;
+  }
+  #match-svg {
+    background: #0b0e15; border: 1px solid var(--border);
+    border-radius: 8px; width: 100%; height: 500px;
+  }
+  .phase-bar {
+    text-align: center; padding: 12px; background: var(--panel);
+    border-radius: 6px; margin-bottom: 12px; letter-spacing: 0.15em;
+    font-weight: 700; color: var(--gold);
+  }
+  .gold-bar {
+    height: 24px; background: var(--panel); border-radius: 12px;
+    overflow: hidden; display: flex; margin-bottom: 12px;
+    border: 1px solid var(--border);
+  }
+  .gold-bar .blue { background: var(--blue); transition: width 0.6s; }
+  .gold-bar .red { background: var(--red); transition: width 0.6s; }
+  .event-feed {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px; height: 540px; overflow-y: auto;
+  }
+  .event-feed h3 { margin: 0 0 8px; font-size: 13px; color: var(--gold); }
+  .event-item {
+    background: #0b0e15; padding: 8px; border-radius: 4px;
+    margin-bottom: 6px; font-size: 12px; border-left: 3px solid var(--border);
+  }
+  .event-item.blue { border-left-color: var(--blue); }
+  .event-item.red { border-left-color: var(--red); }
+  .event-item .time { color: var(--gold); font-family: ui-monospace, monospace; }
+
+  /* Results */
+  .scoreboard {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    margin-bottom: 16px;
+  }
+  .score-card {
+    background: var(--panel); padding: 16px; border-radius: 8px;
+    border: 1px solid var(--border); text-align: center;
+  }
+  .score-card .label { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; }
+  .score-card .value { font-size: 32px; font-weight: 700; color: var(--gold); margin-top: 4px; font-family: ui-monospace, monospace; }
+  .narration {
+    background: var(--panel); padding: 20px; border-radius: 8px;
+    border: 1px solid var(--border); line-height: 1.6;
+    margin-top: 16px; white-space: pre-wrap;
+  }
+  #gold-chart { background: #0b0e15; border-radius: 6px; }
+</style>
+</head>
+<body>
+
+<!-- ============ SCREEN 1 ============ -->
+<div id="screen-title" class="screen active">
+  <h1>MOBA COACH</h1>
+  <p>3v3 draft &amp; strategy simulator</p>
+  <button onclick="startMatch()">Start New Match</button>
+</div>
+
+<!-- ============ SCREEN 2: DRAFT ============ -->
+<div id="screen-draft" class="screen">
+  <div class="step-indicator" id="step-indicator">YOUR BAN</div>
+  <div class="draft-layout">
+    <div class="team-panel blue">
+      <h3>BLUE (YOU)</h3>
+      <div id="blue-slots"></div>
+      <div class="ban-slot" id="blue-ban">BAN: —</div>
+    </div>
+    <div>
+      <div id="champ-grid" class="champ-grid"></div>
+      <div id="role-assign" class="role-assign" style="display:none">
+        <h3 style="margin:0 0 12px">Assign Roles</h3>
+        <div id="role-rows"></div>
+        <button onclick="lockInRoles()">Lock In</button>
+      </div>
+    </div>
+    <div class="team-panel red">
+      <h3>RED (ENEMY)</h3>
+      <div id="red-slots"></div>
+      <div class="ban-slot" id="red-ban">BAN: —</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SCREEN 3: COACHING ============ -->
+<div id="screen-coaching" class="screen">
+  <h2>GAME PLAN</h2>
+  <div class="comp-display" id="comp-display"></div>
+  <div class="coach-layout">
+    <div class="coach-form">
+      <label>Overall Strategy</label>
+      <select id="overall_strategy">
+        <option value="aggressive">Aggressive</option>
+        <option value="standard" selected>Standard</option>
+        <option value="scaling">Scaling</option>
+        <option value="split_push">Split Push</option>
+      </select>
+
+      <fieldset>
+        <legend>Top Lane</legend>
+        <div class="row">
+          <select id="top_approach"><option>aggressive</option><option selected>standard</option><option>passive</option></select>
+          <select id="top_priority"><option selected>cs</option><option>kills</option><option>roam</option></select>
+          <select id="top_tf"><option>engage</option><option selected>damage</option><option>peel</option><option>split</option></select>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Bot Lane</legend>
+        <div class="row">
+          <select id="bot_approach"><option>aggressive</option><option selected>standard</option><option>passive</option></select>
+          <select id="bot_priority"><option selected>cs</option><option>kills</option><option>roam</option></select>
+          <select id="bot_tf"><option>engage</option><option selected>damage</option><option>peel</option><option>split</option></select>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Jungle</legend>
+        <div class="row">
+          <select id="j_pathing"><option>top_focus</option><option>bot_focus</option><option selected>balanced</option><option>full_farm</option></select>
+          <select id="j_gank"><option>high</option><option selected>medium</option><option>low</option></select>
+          <select id="j_obj"><option>high</option><option selected>medium</option><option>low</option></select>
+        </div>
+      </fieldset>
+    </div>
+    <div class="coach-form">
+      <label>Win Condition <span style="color:var(--red)">*</span></label>
+      <textarea id="win_condition" placeholder="How do you want to win this game?"></textarea>
+      <label>Additional Notes</label>
+      <textarea id="notes" placeholder="Any specific instructions for your players?"></textarea>
+      <div style="margin-top: 24px">
+        <button onclick="submitGamePlan()">Submit Game Plan</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SCREEN 4: MATCH ============ -->
+<div id="screen-match" class="screen">
+  <div class="phase-bar" id="phase-bar">EARLY GAME</div>
+  <div class="gold-bar"><div class="blue" id="gold-blue" style="width:50%"></div><div class="red" id="gold-red" style="width:50%"></div></div>
+  <div class="match-layout">
+    <svg id="match-svg" viewBox="0 0 600 500"></svg>
+    <div class="event-feed">
+      <h3>LIVE EVENTS</h3>
+      <div id="event-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SCREEN 5: RESULTS ============ -->
+<div id="screen-results" class="screen">
+  <h2 id="result-title">VICTORY</h2>
+  <div class="scoreboard">
+    <div class="score-card"><div class="label">SCORE</div><div class="value" id="r-score">—</div></div>
+    <div class="score-card"><div class="label">DURATION</div><div class="value" id="r-duration">—</div></div>
+    <div class="score-card"><div class="label">TOWERS</div><div class="value" id="r-towers">—</div></div>
+    <div class="score-card"><div class="label">MVP</div><div class="value" id="r-mvp" style="font-size:18px">—</div></div>
+  </div>
+  <canvas id="gold-chart" width="1200" height="200"></canvas>
+  <div class="narration" id="narration">—</div>
+  <div style="margin-top: 16px">
+    <button onclick="location.reload()">Play Again</button>
+  </div>
+</div>
+
+<script>
+const API = ""; // same origin
+let CHAMPIONS = {};
+let DRAFT_STATE = null;
+let LAST_RESULT = null;
+
+// ---------------- helpers ----------------
+function show(screenId) {
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+  document.getElementById(screenId).classList.add("active");
+}
+async function api(path, method = "GET", body = null) {
+  const opts = { method, headers: { "Content-Type": "application/json" } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(API + path, opts);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+// ---------------- start ----------------
+async function loadChampions() {
+  CHAMPIONS = await api("/champions");
+}
+async function startMatch() {
+  await loadChampions();
+  DRAFT_STATE = await api("/draft/start", "POST");
+  show("screen-draft");
+  renderDraft();
+}
+
+// ---------------- draft ----------------
+function renderDraft() {
+  const grid = document.getElementById("champ-grid");
+  grid.innerHTML = "";
+  const banned = new Set([...DRAFT_STATE.blue_bans, ...DRAFT_STATE.red_bans]);
+  const blueP = new Set(DRAFT_STATE.blue_picks);
+  const redP = new Set(DRAFT_STATE.red_picks);
+  const playerTurn = DRAFT_STATE.turn === "player_ban" || DRAFT_STATE.turn === "player_pick";
+
+  Object.values(CHAMPIONS).forEach(c => {
+    const card = document.createElement("div");
+    card.className = "champ-card";
+    if (banned.has(c.id)) card.classList.add("banned");
+    else if (blueP.has(c.id)) card.classList.add("picked-blue");
+    else if (redP.has(c.id)) card.classList.add("picked-red");
+    else if (!playerTurn) card.classList.add("disabled");
+
+    card.innerHTML = `
+      <div class="icon">${c.icon}</div>
+      <div class="name">${c.name}</div>
+      <div class="tag">${c.tag}</div>
+      <div class="roles">${c.roles.join(" / ")}</div>
+    `;
+    if (playerTurn && !banned.has(c.id) && !blueP.has(c.id) && !redP.has(c.id)) {
+      card.onclick = () => onChampClick(c.id);
+    }
+    grid.appendChild(card);
+  });
+
+  // Slots
+  renderSlots("blue-slots", DRAFT_STATE.blue_picks, "blue");
+  renderSlots("red-slots", DRAFT_STATE.red_picks, "red");
+  document.getElementById("blue-ban").textContent = "BAN: " + (DRAFT_STATE.blue_bans[0] || "—");
+  document.getElementById("red-ban").textContent = "BAN: " + (DRAFT_STATE.red_bans[0] || "—");
+
+  // Step indicator
+  const ind = document.getElementById("step-indicator");
+  const labels = {
+    player_ban: "YOUR BAN",
+    enemy_ban: "ENEMY BANNING",
+    player_pick: `YOUR PICK (${DRAFT_STATE.blue_picks.length + 1} of 3)`,
+    enemy_pick: "ENEMY PICKING",
+    role_assignment: "ASSIGN ROLES",
+    complete: "DRAFT COMPLETE",
+  };
+  ind.textContent = labels[DRAFT_STATE.turn] || DRAFT_STATE.turn;
+  ind.className = "step-indicator";
+  if (DRAFT_STATE.turn === "enemy_ban" || DRAFT_STATE.turn === "enemy_pick") {
+    ind.classList.add("waiting");
+    ind.innerHTML += '<span class="spinner"></span>';
+  }
+
+  if (DRAFT_STATE.turn === "role_assignment") {
+    showRoleAssign();
+  }
+}
+
+function renderSlots(elId, picks, side) {
+  const el = document.getElementById(elId);
+  el.innerHTML = "";
+  for (let i = 0; i < 3; i++) {
+    const slot = document.createElement("div");
+    slot.className = "team-slot" + (picks[i] ? " filled" : "");
+    if (picks[i]) {
+      const c = CHAMPIONS[picks[i]];
+      slot.innerHTML = `<span class="icon">${c.icon}</span> <strong>${c.name}</strong><br><span style="color:var(--muted)">${c.tag}</span>`;
+    } else {
+      slot.textContent = "—";
+    }
+    el.appendChild(slot);
+  }
+}
+
+async function onChampClick(cid) {
+  if (DRAFT_STATE.turn === "player_ban") {
+    DRAFT_STATE = await api("/draft/ban", "POST", { champion_id: cid });
+  } else if (DRAFT_STATE.turn === "player_pick") {
+    DRAFT_STATE = await api("/draft/pick", "POST", { champion_id: cid });
+  }
+  renderDraft();
+}
+
+function showRoleAssign() {
+  const panel = document.getElementById("role-assign");
+  panel.style.display = "block";
+  const rows = document.getElementById("role-rows");
+  rows.innerHTML = "";
+  DRAFT_STATE.blue_picks.forEach(cid => {
+    const c = CHAMPIONS[cid];
+    const row = document.createElement("div");
+    row.className = "role-assign-row";
+    row.innerHTML = `
+      <div><span style="font-size:24px">${c.icon}</span> <strong>${c.name}</strong> <span style="color:var(--muted)">(${c.roles.join("/")})</span></div>
+      <select data-cid="${cid}">
+        ${["top","bot","jungle"].map(r => `<option value="${r}" ${c.roles.includes(r)?"":"disabled"}>${r.toUpperCase()}</option>`).join("")}
+      </select>
+    `;
+    rows.appendChild(row);
+  });
+}
+
+async function lockInRoles() {
+  const selects = document.querySelectorAll("#role-rows select");
+  const assignments = {};
+  const used = new Set();
+  for (const s of selects) {
+    if (used.has(s.value)) { alert("Each role must be unique."); return; }
+    used.add(s.value);
+    assignments[s.dataset.cid] = s.value;
+  }
+  if (used.size !== 3) { alert("Assign all 3 roles."); return; }
+  try {
+    DRAFT_STATE = await api("/draft/roles", "POST", { assignments });
+  } catch (e) {
+    alert("Invalid assignment: " + e.message);
+    return;
+  }
+  show("screen-coaching");
+  renderCoaching();
+}
+
+// ---------------- coaching ----------------
+function renderCoaching() {
+  const blueRoles = DRAFT_STATE.role_assignments;
+  const redRoles = DRAFT_STATE.enemy_role_assignments || {};
+  const cd = document.getElementById("comp-display");
+  cd.innerHTML = `
+    <div class="team">
+      ${["top","bot","jungle"].map(r => {
+        const cid = Object.keys(blueRoles).find(k => blueRoles[k] === r);
+        const c = CHAMPIONS[cid];
+        return `<div class="player blue"><div class="icon">${c.icon}</div><div>${c.name}</div><div style="color:var(--muted)">${r}</div></div>`;
+      }).join("")}
+    </div>
+    <div class="team">
+      ${["top","bot","jungle"].map(r => {
+        const cid = Object.keys(redRoles).find(k => redRoles[k] === r);
+        const c = CHAMPIONS[cid];
+        return `<div class="player red"><div class="icon">${c.icon}</div><div>${c.name}</div><div style="color:var(--muted)">${r}</div></div>`;
+      }).join("")}
+    </div>
+  `;
+}
+
+async function submitGamePlan() {
+  const wc = document.getElementById("win_condition").value.trim();
+  if (!wc) { alert("Win condition is required."); return; }
+  const coaching = {
+    overall_strategy: document.getElementById("overall_strategy").value,
+    win_condition: wc,
+    top_lane: {
+      approach: document.getElementById("top_approach").value,
+      priority: document.getElementById("top_priority").value,
+      teamfight_role: document.getElementById("top_tf").value,
+    },
+    bot_lane: {
+      approach: document.getElementById("bot_approach").value,
+      priority: document.getElementById("bot_priority").value,
+      teamfight_role: document.getElementById("bot_tf").value,
+    },
+    jungle: {
+      pathing: document.getElementById("j_pathing").value,
+      gank_frequency: document.getElementById("j_gank").value,
+      objective_focus: document.getElementById("j_obj").value,
+    },
+    notes: document.getElementById("notes").value,
+  };
+  show("screen-match");
+  initMap();
+  // Fire request — may take a while if LLM is slow
+  api("/match/play", "POST", { coaching }).then(res => {
+    LAST_RESULT = res;
+    playMatchAnimation();
+  }).catch(e => alert("Match failed: " + e.message));
+}
+
+// ---------------- match map ----------------
+function initMap() {
+  const svg = document.getElementById("match-svg");
+  svg.innerHTML = `
+    <rect x="20" y="20" width="560" height="460" fill="#13182a" stroke="#2d3548" />
+    <!-- top lane -->
+    <line x1="60" y1="60" x2="540" y2="60" stroke="#2d3548" stroke-width="14" stroke-linecap="round"/>
+    <!-- bot lane -->
+    <line x1="60" y1="440" x2="540" y2="440" stroke="#2d3548" stroke-width="14" stroke-linecap="round"/>
+    <!-- jungle paths -->
+    <line x1="60" y1="60" x2="540" y2="440" stroke="#1c2236" stroke-width="6"/>
+    <line x1="60" y1="440" x2="540" y2="60" stroke="#1c2236" stroke-width="6"/>
+    <!-- wyrm -->
+    <circle cx="300" cy="250" r="22" fill="#1a1f2e" stroke="#f59e0b" stroke-width="2"/>
+    <text x="300" y="258" text-anchor="middle" font-size="22">🐉</text>
+    <!-- nexuses -->
+    <rect x="35" y="415" width="40" height="40" fill="#1a3a6b" stroke="#3b82f6" stroke-width="2"/>
+    <text x="55" y="442" text-anchor="middle" font-size="20">🏰</text>
+    <rect x="525" y="45" width="40" height="40" fill="#5a1a1a" stroke="#ef4444" stroke-width="2"/>
+    <text x="545" y="72" text-anchor="middle" font-size="20">🏰</text>
+    <!-- towers (8) -->
+    ${[
+      [150,60,'#3b82f6'], [300,60,'#3b82f6'],
+      [150,440,'#3b82f6'], [300,440,'#3b82f6'],
+      [450,60,'#ef4444'], [380,60,'#ef4444'],
+      [450,440,'#ef4444'], [380,440,'#ef4444'],
+    ].map(([x,y,c]) => `<rect x="${x-6}" y="${y-6}" width="12" height="12" fill="${c}"/>`).join("")}
+    <!-- players -->
+    <circle id="p-blue-top" cx="100" cy="60" r="10" fill="#3b82f6" stroke="#fff" stroke-width="2"/>
+    <circle id="p-blue-bot" cx="100" cy="440" r="10" fill="#3b82f6" stroke="#fff" stroke-width="2"/>
+    <circle id="p-blue-jungle" cx="180" cy="320" r="10" fill="#3b82f6" stroke="#fff" stroke-width="2"/>
+    <circle id="p-red-top" cx="500" cy="60" r="10" fill="#ef4444" stroke="#fff" stroke-width="2"/>
+    <circle id="p-red-bot" cx="500" cy="440" r="10" fill="#ef4444" stroke="#fff" stroke-width="2"/>
+    <circle id="p-red-jungle" cx="420" cy="180" r="10" fill="#ef4444" stroke="#fff" stroke-width="2"/>
+  `;
+  document.getElementById("event-list").innerHTML = "";
+  document.getElementById("phase-bar").textContent = "EARLY GAME";
+}
+
+function jitterPlayers(driftToCenter = 0) {
+  ["p-blue-top","p-blue-bot","p-blue-jungle","p-red-top","p-red-bot","p-red-jungle"].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const cx = parseFloat(el.getAttribute("cx"));
+    const cy = parseFloat(el.getAttribute("cy"));
+    const tx = 300, ty = 250;
+    const newX = cx + (tx - cx) * driftToCenter * 0.05 + (Math.random() - 0.5) * 8;
+    const newY = cy + (ty - cy) * driftToCenter * 0.05 + (Math.random() - 0.5) * 8;
+    el.setAttribute("cx", newX);
+    el.setAttribute("cy", newY);
+  });
+}
+
+function playMatchAnimation() {
+  const events = LAST_RESULT.match_result.key_events || [];
+  const timeline = LAST_RESULT.match_result.gold_diff_timeline || [];
+  const phases = [
+    { name: "EARLY GAME", until: 11, drift: 0 },
+    { name: "MID GAME", until: 22, drift: 1 },
+    { name: "LATE GAME", until: 999, drift: 2 },
+  ];
+  let i = 0;
+  let stop = false;
+  const STEP_MS = 600;
+  const start = Date.now();
+
+  function tick() {
+    if (stop) return;
+    if (i >= events.length) {
+      finishMatch();
+      return;
+    }
+    const ev = events[i];
+    const phase = phases.find(p => ev.time <= p.until);
+    document.getElementById("phase-bar").textContent = phase.name;
+    jitterPlayers(phase.drift);
+
+    // Update gold bar from nearest timeline entry
+    const tl = timeline.filter(t => t[0] <= ev.time).slice(-1)[0] || [0, 0];
+    const diff = tl[1];
+    const totalGold = 30000;
+    const bluePct = Math.max(10, Math.min(90, 50 + (diff / totalGold) * 100));
+    document.getElementById("gold-blue").style.width = bluePct + "%";
+    document.getElementById("gold-red").style.width = (100 - bluePct) + "%";
+
+    // Append event
+    const list = document.getElementById("event-list");
+    const item = document.createElement("div");
+    const side = ev.details && ev.details.toLowerCase().includes("red") ? "red"
+              : ev.details && ev.details.toLowerCase().includes("blue") ? "blue" : "";
+    item.className = "event-item " + side;
+    item.innerHTML = `<span class="time">[${ev.time}']</span> <strong>${ev.event}</strong><br>${ev.details}`;
+    list.appendChild(item);
+    list.scrollTop = list.scrollHeight;
+
+    i++;
+    setTimeout(tick, STEP_MS);
+  }
+  tick();
+}
+
+function finishMatch() {
+  show("screen-results");
+  const mr = LAST_RESULT.match_result;
+  document.getElementById("result-title").textContent =
+    mr.winner === "blue" ? "VICTORY" : "DEFEAT";
+  document.getElementById("result-title").style.color =
+    mr.winner === "blue" ? "var(--blue)" : "var(--red)";
+  document.getElementById("r-score").textContent = `${mr.blue_kills} - ${mr.red_kills}`;
+  document.getElementById("r-duration").textContent = Math.round(mr.duration_minutes) + "m";
+  document.getElementById("r-towers").textContent =
+    `${mr.towers_destroyed.blue} - ${mr.towers_destroyed.red}`;
+  const mvpC = CHAMPIONS[mr.mvp];
+  document.getElementById("r-mvp").textContent = mvpC ? `${mvpC.icon} ${mvpC.name}` : mr.mvp;
+  document.getElementById("narration").textContent = LAST_RESULT.narration;
+  drawGoldChart(mr.gold_diff_timeline);
+}
+
+function drawGoldChart(timeline) {
+  const cv = document.getElementById("gold-chart");
+  const ctx = cv.getContext("2d");
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  if (!timeline || timeline.length < 2) return;
+  const maxT = timeline[timeline.length - 1][0] || 1;
+  const maxG = Math.max(...timeline.map(t => Math.abs(t[1])), 1000);
+  const W = cv.width, H = cv.height;
+  // axes
+  ctx.strokeStyle = "#2d3548"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, H/2); ctx.lineTo(W, H/2); ctx.stroke();
+  // line
+  ctx.strokeStyle = "#f59e0b"; ctx.lineWidth = 3;
+  ctx.beginPath();
+  timeline.forEach((pt, i) => {
+    const x = (pt[0] / maxT) * W;
+    const y = H/2 - (pt[1] / maxG) * (H/2 - 10);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  // labels
+  ctx.fillStyle = "#94a3b8"; ctx.font = "12px ui-monospace, monospace";
+  ctx.fillText("BLUE +", 8, 18);
+  ctx.fillText("RED +", 8, H - 8);
+}
+</script>
+</body>
+</html>
